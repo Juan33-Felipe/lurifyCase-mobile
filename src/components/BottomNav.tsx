@@ -1,69 +1,73 @@
 import React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
-import Animated, { FadeInUp, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+type Tab = 'dockets' | 'audit' | 'case-map' | 'settings';
 
-export function BottomNav() {
+interface BottomNavProps {
+  activeTab?: Tab;
+  onDocketsPress?: () => void;
+  onAuditPress?: () => void;
+  onCaseMapPress?: () => void;
+  onSetupPress?: () => void;
+}
+
+export function BottomNav({ activeTab = 'dockets', onDocketsPress, onAuditPress, onCaseMapPress, onSetupPress }: BottomNavProps) {
   const insets = useSafeAreaInsets();
   
-  const fabScale = useSharedValue(1);
-  const fabStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: fabScale.value }],
-  }));
-
   return (
-    <Animated.View 
-      entering={FadeInUp.duration(600).delay(350).springify()}
-      className="absolute bottom-0 w-full z-50 pointer-events-box-none px-margin"
-      style={{ paddingBottom: Math.max(insets.bottom, 16) }}
+    <View 
+      className="absolute bottom-0 w-full z-50 bg-surface-glass-modal shadow-sm border-t border-[rgba(45,42,38,0.06)]"
+      style={{ paddingBottom: Platform.OS === 'ios' ? insets.bottom : Math.max(insets.bottom, 12) }}
     >
-      <View className="w-full max-w-sm mx-auto flex-row items-center justify-between bg-surface-container-lowest/90 rounded-3xl px-3 py-2 border border-surface-container/60 shadow-lg pointer-events-auto">
-        <Pressable className="flex-col items-center justify-center w-12 h-12 active:opacity-60">
-          <Icon name="dashboard" size={24} color="#f2ca50" />
-          <Text className="font-label-sm text-[9px] mt-1 text-primary font-bold">Home</Text>
-        </Pressable>
-        <Pressable className="flex-col items-center justify-center w-12 h-12 active:opacity-60">
-          <Icon name="balance" size={24} color="#99907c" />
-          <Text className="font-label-sm text-[9px] mt-1 text-outline font-semibold">Audit</Text>
-        </Pressable>
-        
-        <View className="relative -top-6 px-1">
-          <View 
-            className="bg-surface-container-lowest shadow-sm"
-            style={{ borderRadius: 999, padding: 6 }}
-          >
-            <AnimatedPressable 
-              style={[fabStyle, { borderRadius: 999 }]}
-              onPressIn={() => fabScale.value = withSpring(0.9, { damping: 15 })}
-              onPressOut={() => fabScale.value = withSpring(1, { damping: 15 })}
-              className="w-14 h-14 overflow-hidden shadow-lg items-center justify-center bg-surface-container-highest"
+      <View className="relative flex-row items-center justify-around h-16 px-gutter-sm max-w-lg mx-auto w-full">
+        <TouchableOpacity 
+          onPress={onDocketsPress}
+          className="flex-col items-center justify-center w-14 h-12"
+        >
+          <Icon name="folder-open" size={22} color={activeTab === 'dockets' ? '#c59b27' : '#757065'} />
+          <Text className={`font-label-sm text-label-sm mt-0.5 ${activeTab === 'dockets' ? 'text-gold-burnished font-semibold' : 'text-ink-muted'}`}>Dockets</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          onPress={onAuditPress}
+          className="flex-col items-center justify-center w-14 h-12"
+        >
+          <Icon name="verified" size={22} color={activeTab === 'audit' ? '#c59b27' : '#757065'} />
+          <Text className={`font-label-sm text-label-sm mt-0.5 ${activeTab === 'audit' ? 'text-gold-burnished font-semibold' : 'text-ink-muted'}`}>Audit</Text>
+        </TouchableOpacity>
+
+        <View className="flex-col items-center justify-center w-14 h-12 -mt-5">
+          <TouchableOpacity className="shadow-sm active:scale-95 transition-transform">
+            <LinearGradient
+              colors={['#d4af37', '#c59b27']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              className="w-[52px] h-[52px] rounded-full flex items-center justify-center"
             >
-              <LinearGradient
-                colors={['#d4af37', '#f2ca50', '#ffe088']}
-                start={{ x: 0, y: 1 }}
-                end={{ x: 1, y: 0 }}
-                className="w-full h-full items-center justify-center rounded-full"
-                style={{ borderRadius: 999 }}
-              >
-                <Icon name="add" size={28} color="#3c2f00" />
-              </LinearGradient>
-            </AnimatedPressable>
-          </View>
+              <Icon name="add" size={28} color="#181716" />
+            </LinearGradient>
+          </TouchableOpacity>
         </View>
-        
-        <Pressable className="flex-col items-center justify-center w-12 h-12 active:opacity-60">
-          <Icon name="hub" size={24} color="#99907c" />
-          <Text className="font-label-sm text-[9px] mt-1 text-outline font-semibold">Graph</Text>
-        </Pressable>
-        <Pressable className="flex-col items-center justify-center w-12 h-12 active:opacity-60">
-          <Icon name="tune" size={24} color="#99907c" />
-          <Text className="font-label-sm text-[9px] mt-1 text-outline font-semibold">Setup</Text>
-        </Pressable>
+
+        <TouchableOpacity 
+          onPress={onCaseMapPress}
+          className="flex-col items-center justify-center w-14 h-12"
+        >
+          <Icon name="hub" size={22} color={activeTab === 'case-map' ? '#c59b27' : '#757065'} />
+          <Text className={`font-label-sm text-label-sm mt-0.5 ${activeTab === 'case-map' ? 'text-gold-burnished font-semibold' : 'text-ink-muted'}`}>Case Map</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          onPress={onSetupPress}
+          className="flex-col items-center justify-center w-14 h-12"
+        >
+          <Icon name="tune" size={22} color={activeTab === 'settings' ? '#c59b27' : '#757065'} />
+          <Text className={`font-label-sm text-label-sm mt-0.5 ${activeTab === 'settings' ? 'text-gold-burnished font-semibold' : 'text-ink-muted'}`}>Settings</Text>
+        </TouchableOpacity>
       </View>
-    </Animated.View>
+    </View>
   );
 }

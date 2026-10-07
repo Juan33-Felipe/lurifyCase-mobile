@@ -3,9 +3,11 @@ import { View, Text, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { useColorScheme } from 'nativewind';
 
 export function Header() {
   const insets = useSafeAreaInsets();
+  const { colorScheme, toggleColorScheme } = useColorScheme();
 
   return (
     <Animated.View 
@@ -23,6 +25,12 @@ export function Header() {
           </Text>
         </View>
         <View className="flex-row items-center gap-3">
+          <Pressable 
+            onPress={toggleColorScheme}
+            className="w-10 h-10 flex items-center justify-center rounded-full active:bg-surface-container-high"
+          >
+            <Icon name={colorScheme === 'dark' ? 'light-mode' : 'dark-mode'} size={22} color="#d0c5af" />
+          </Pressable>
           <Pressable className="w-10 h-10 flex items-center justify-center rounded-full active:bg-surface-container-high">
             <Icon name="search" size={22} color="#d0c5af" />
           </Pressable>
