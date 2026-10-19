@@ -1,167 +1,392 @@
-import React, { useState } from 'react';
-import { View, ScrollView, Text, TextInput, TouchableOpacity } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
+import React, { useMemo, useState } from 'react';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
-import { BottomNav } from '../components/BottomNav';
+import {
+  CaseCarouselCard,
+  EmptyState,
+  ErrorState,
+  HeroHeader,
+  LoadingState,
+  QuickActionTaskCard,
+  Reveal,
+  Tab,
+  labelKeys,
+} from '../components/ui';
+import { useAuth } from '../context/AuthContext';
+import { useCases } from '../context/CasesContext';
+import { useSettings, useTheme } from '../context/SettingsContext';
+import { fonts } from '../theme/theme';
+import { Case } from '../types/api.types';
 
-export default function DashboardScreen({ onNavigateToSetup, onNavigateToAudit, onNavigateToCaseMap }: { onNavigateToSetup?: () => void, onNavigateToAudit?: () => void, onNavigateToCaseMap?: () => void }) {
-  const insets = useSafeAreaInsets();
-  const [activeFilter, setActiveFilter] = useState('All');
+type Filter = 'ALL' | 'ACTIVE' | 'ARCHIVED';
 
-  const filters = ['All', 'Active', 'Federal', 'Pre-Trial'];
+const CASE_ICONS: React.ComponentProps<typeof Icon>['name'][] = [
+  'gavel',
+  'account-balance',
+  'folder-special',
+  'verified-user',
+  'description',
+];
+
+/**
+ * Screen 1 — Dashboard / Dockets Screen (Phase 3.1):
+ * - Top: <HeroHeader /> with dark charcoal block, wave SVG overlay, lawyer greeting, avatar,
+ *   and overlapping floating search bar to filter dockets.
+ * - Middle ("Active Cases"): Horizontal ScrollView of <CaseCarouselCard /> fed by real
+ *   `caseService.getCases()` data (`variant="primary"` for selected/lead docket, `variant="secondary"` for others).
+ * - Bottom ("Pending Actions"): Vertical list of <QuickActionTaskCard /> derived from real
+ *   docket/canvas/audit state with interactive checkboxes and status dot indicators.
+ */
+export default function DashboardScreen({
+  onNavigate,
+  onNewCase,
+}: {
+  onNavigate: (tab: Tab) => void;
+  onNewCase: () => void;
+}) {
+  const palette = useTheme();
+  const { t, language } = useSettings();
+  const { user } = useAuth();
+  const { cases, refreshCases, selectedCase, selectCase, canvas, audit } = useCases();
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState<Filter>('ALL');
+  const [completedTaskIds, setCompletedTaskIds] = useState<Record<string, boolean>>({});
+
+  const cycleFilter = () => {
+    setFilter((prev) => (prev === 'ALL' ? 'ACTIVE' : prev === 'ACTIVE' ? 'ARCHIVED' : 'ALL'));
+  };
+
+  const activeFilterLabel =
+    filter === 'ACTIVE'
+      ? t('cases.filter.active')
+      : filter === 'ARCHIVED'
+        ? t('cases.filter.archived')
+        : undefined;
+
+  const filteredCases = useMemo(() => {
+    const list = cases.data ?? [];
+    const q = searchQuery.trim().toLowerCase();
+    return list.filter((c) => {
+      const matchesStatus = filter === 'ALL' || c.status === filter;
+      if (!matchesStatus) return false;
+      if (!q) return true;
+      return (
+        c.title.toLowerCase().includes(q) ||
+        (c.description?.toLowerCase().includes(q) ?? false) ||
+        (c.clientReference?.toLowerCase().includes(q) ?? false)
+      );
+    });
+  }, [cases.data, filter, searchQuery]);
+
+  // Derive real actionable legal items from the selected case, its canvas elements, and audit alerts
+  const actionTasks = useMemo(() => {
+    if (!selectedCase) return [];
+
+    const items: {
+      id: string;
+      title: string;
+      subtitle: string;
+      statusColor: string;
+      defaultChecked?: boolean;
+      targetTab: Tab;
+    }[] = [];
+
+    const alerts = audit.data?.alerts ?? [];
+    const nodes = canvas.data?.canvas.nodes ?? [];
+
+    // 1. Real AI Audit alerts (FR-004) become top-priority actionable tasks
+    alerts.forEach((alert) => {
+      const color =
+        alert.severity === 'HIGH'
+          ? palette.danger
+          : alert.severity === 'MEDIUM'
+            ? palette.warning
+            : palette.success;
+      items.push({
+        id: `alert-${alert.id}`,
+        title: `${alert.title} — ${alert.description}`,
+        subtitle: `${selectedCase.title} • ${t(labelKeys.severity(alert.severity))}`,
+        statusColor: color,
+        targetTab: 'audit',
+      });
+    });
+
+    // 2. Real case elements (Facts, Evidence, Statutes, Precedents)
+    nodes.forEach((node) => {
+      items.push({
+        id: `node-${node.id}`,
+        title: `${node.title}: ${node.content}`,
+        subtitle: `${selectedCase.title} • ${t(labelKeys.nodeType(node.type))}`,
+        statusColor: node.type === 'EVIDENCE' ? palette.success : palette.charcoal,
+        defaultChecked: node.userModified,
+        targetTab: 'caseMap',
+      });
+    });
+
+    // 3. Procedural workflow actions based on real state of the selected case
+    if (nodes.length === 0) {
+      items.push({
+        id: `ingest-${selectedCase.id}`,
+        title: t('tasks.ingestFacts'),
+        subtitle: selectedCase.clientReference
+          ? `${selectedCase.title} • ${selectedCase.clientReference}`
+          : selectedCase.title,
+        statusColor: palette.warning,
+        targetTab: 'caseMap',
+      });
+    } else if (!audit.data) {
+      items.push({
+        id: `run-audit-${selectedCase.id}`,
+        title: t('tasks.auditReady'),
+        subtitle: `${selectedCase.title} • ${nodes.length} ${t('common.elements')}`,
+        statusColor: palette.warning,
+        targetTab: 'audit',
+      });
+    } else {
+      items.push({
+        id: `audit-done-${selectedCase.id}`,
+        title: t('tasks.auditReviewed'),
+        subtitle: selectedCase.title,
+        statusColor: palette.success,
+        defaultChecked: true,
+        targetTab: 'audit',
+      });
+    }
+
+    return items;
+  }, [selectedCase, audit.data, canvas.data, palette, t]);
+
+  const toggleTask = (id: string, defaultChecked?: boolean) => {
+    setCompletedTaskIds((prev) => ({
+      ...prev,
+      [id]: !(prev[id] ?? defaultChecked ?? false),
+    }));
+  };
+
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString(language === 'es' ? 'es' : 'en', {
+      day: 'numeric',
+      month: 'short',
+    });
+
+  const totalCases = cases.data?.length ?? 0;
+  const greetingText = user?.fullName
+    ? `${t('hero.greeting').split(',')[0]}, ${user.fullName.split(' ')[0]}`
+    : t('hero.greeting');
+
+  const handleOpenCaseMap = (c: Case) => {
+    selectCase(c.id);
+    onNavigate('caseMap');
+  };
 
   return (
-    <View className="flex-1 bg-surface relative" style={{ paddingBottom: insets.bottom }}>
-      {/* Header */}
-      <View className="absolute top-0 w-full z-50 bg-surface/95 border-b border-border-vellum shadow-sm" style={{ paddingTop: insets.top }}>
-        <View className="h-16 px-margin flex-row items-center justify-between">
-          <View className="flex-row items-center gap-space-sm">
-            <LinearGradient colors={['#d4af37', '#c59b27']} className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm">
-              <Icon name="gavel" size={18} color="#181716" />
-            </LinearGradient>
-            <Text className="font-headline-md text-xl text-ink-obsidian font-bold tracking-tight">Dockets</Text>
-          </View>
-          <View className="flex-row items-center gap-2">
-            <TouchableOpacity className="w-10 h-10 rounded-full flex items-center justify-center">
-              <Icon name="search" size={24} color="#2d2a26" />
-            </TouchableOpacity>
-            <View className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center ml-1">
-              <Icon name="person" size={18} color="#181716" />
-            </View>
-          </View>
-        </View>
-      </View>
-
-      <ScrollView 
-        className="flex-1 w-full pt-16 z-10"
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: insets.top + 70, paddingBottom: 120 }}
+    <View style={[styles.screen, { backgroundColor: palette.background }]}>
+      <ScrollView
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={cases.loading && totalCases > 0}
+            onRefresh={refreshCases}
+            tintColor={palette.text}
+          />
+        }
       >
-        <View className="flex-col w-full gap-space-lg">
-          
-          {/* Filters */}
-          <View className="flex-col gap-space-sm pt-2">
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row overflow-visible" contentContainerStyle={{ gap: 8 }}>
-              {filters.map((filter) => (
-                <TouchableOpacity 
-                  key={filter}
-                  onPress={() => setActiveFilter(filter)}
-                  className={`px-4 py-2 rounded-full ${activeFilter === filter ? 'bg-ink-obsidian' : 'bg-surface-container-lowest border border-surface-container'}`}
-                >
-                  <Text className={`font-label-md text-sm ${activeFilter === filter ? 'text-surface-bright font-bold' : 'text-ink-muted'}`}>
-                    {filter}
+        {/* Top Hero Header with Overlapping Search Bar */}
+        <HeroHeader
+          greeting={greetingText}
+          headline={t('hero.headline')}
+          userName={user?.fullName}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder={t('hero.searchPlaceholder')}
+          onFilterPress={cycleFilter}
+          activeFilterLabel={activeFilterLabel}
+          onAvatarPress={() => onNavigate('settings')}
+        />
+
+        <View style={styles.bodyContainer}>
+          {cases.loading && totalCases === 0 ? (
+            <LoadingState />
+          ) : cases.error && totalCases === 0 ? (
+            <ErrorState onRetry={refreshCases} />
+          ) : totalCases === 0 ? (
+            <EmptyState
+              icon="folder-open"
+              title={t('cases.empty.title')}
+              body={t('cases.empty.body')}
+              actionLabel={t('nav.newCase')}
+              onAction={onNewCase}
+            />
+          ) : (
+            <>
+              {/* Middle Section: Horizontal Carousel of Active Cases ("Project" section) */}
+              <View style={styles.sectionBlock}>
+                <View style={styles.sectionHeader}>
+                  <Text
+                    style={{
+                      fontFamily: fonts.semibold,
+                      fontSize: 19,
+                      color: palette.text,
+                      letterSpacing: -0.2,
+                    }}
+                  >
+                    {t('cases.title')}
                   </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
+                  <Pressable onPress={() => onNavigate('caseMap')} hitSlop={8}>
+                    <Text
+                      style={{
+                        fontFamily: fonts.medium,
+                        fontSize: 12.5,
+                        color: palette.textMuted,
+                      }}
+                    >
+                      {t('common.viewAll')}
+                    </Text>
+                  </Pressable>
+                </View>
 
-          {/* Priority Matter Hero Glass Card */}
-          <View className="relative overflow-hidden rounded-2xl bg-surface-container-lowest p-space-lg border border-border-vellum shadow-sm">
-            <View className="flex-row items-center justify-between mb-4">
-              <View className="flex-row items-center gap-2">
-                <Icon name="star" size={16} color="#c59b27" />
-                <Text className="font-label-sm uppercase tracking-widest text-gold-burnished font-bold text-xs">Lead Matter</Text>
+                {filteredCases.length === 0 ? (
+                  <View style={styles.emptyFilterBox}>
+                    <Text
+                      style={{
+                        fontFamily: fonts.body,
+                        fontSize: 13.5,
+                        color: palette.textMuted,
+                      }}
+                    >
+                      {t('cases.noFilterResults')}
+                    </Text>
+                  </View>
+                ) : (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.carouselScroll}
+                    contentContainerStyle={styles.carouselContent}
+                  >
+                    {filteredCases.map((c, idx) => {
+                      const isPrimary = selectedCase ? c.id === selectedCase.id : idx === 0;
+                      const icon = CASE_ICONS[idx % CASE_ICONS.length];
+                      const summaryText =
+                        c.description && c.description.trim().length > 0
+                          ? c.description
+                          : `${t('cases.updated')} ${formatDate(c.updatedAt)} • ${t('cases.defaultSummary')}`;
+
+                      return (
+                        <Reveal key={c.id} index={idx}>
+                          <CaseCarouselCard
+                            variant={isPrimary ? 'primary' : 'secondary'}
+                            title={c.title}
+                            summary={summaryText}
+                            reference={c.clientReference}
+                            icon={icon}
+                            onPress={() => selectCase(c.id)}
+                            onArrowPress={() => handleOpenCaseMap(c)}
+                          />
+                        </Reveal>
+                      );
+                    })}
+                  </ScrollView>
+                )}
               </View>
-              <View className="flex-row items-center gap-1.5">
-                <View className="w-2 h-2 rounded-full bg-error" />
-                <Text className="font-label-sm text-xs text-error font-semibold">Sealed</Text>
+
+              {/* Bottom Section: Vertical List of Pending Legal Actions ("Tasks" section) */}
+              <View style={styles.sectionBlock}>
+                <View style={styles.sectionHeader}>
+                  <Text
+                    style={{
+                      fontFamily: fonts.semibold,
+                      fontSize: 19,
+                      color: palette.text,
+                      letterSpacing: -0.2,
+                    }}
+                  >
+                    {t('tasks.title')}
+                  </Text>
+                  <Pressable
+                    onPress={() => onNavigate('audit')}
+                    style={styles.allTasksAction}
+                    hitSlop={8}
+                  >
+                    <Text
+                      style={{
+                        fontFamily: fonts.medium,
+                        fontSize: 12.5,
+                        color: palette.textMuted,
+                      }}
+                    >
+                      {t('tasks.allTasks')}
+                    </Text>
+                    <Icon name="keyboard-arrow-down" size={16} color={palette.textMuted} />
+                  </Pressable>
+                </View>
+
+                <View style={styles.tasksList}>
+                  {actionTasks.map((task, idx) => {
+                    const isChecked = completedTaskIds[task.id] ?? task.defaultChecked ?? false;
+                    return (
+                      <Reveal key={task.id} index={idx}>
+                        <QuickActionTaskCard
+                          title={task.title}
+                          subtitle={task.subtitle}
+                          checked={isChecked}
+                          statusColor={task.statusColor}
+                          onToggle={() => toggleTask(task.id, task.defaultChecked)}
+                          onPress={() => onNavigate(task.targetTab)}
+                        />
+                      </Reveal>
+                    );
+                  })}
+                </View>
               </View>
-            </View>
-
-            <View className="gap-1 mb-6">
-              <Text className="font-headline-lg text-2xl text-ink-obsidian font-bold leading-tight">State v. Sterling Industries</Text>
-              <Text className="font-body-md text-ink-muted text-sm tracking-wide">#882-CR • 9th Judicial Circuit</Text>
-            </View>
-
-            {/* Metrics Grid */}
-            <View className="flex-row gap-4 mb-6">
-              <View className="flex-1">
-                <Text className="font-label-sm text-xs text-ink-muted uppercase tracking-wider mb-1">Trial Readiness</Text>
-                <Text className="font-headline-sm text-xl text-gold-burnished font-bold">88%</Text>
-              </View>
-              <View className="flex-1 border-l border-border-vellum pl-4">
-                <Text className="font-label-sm text-xs text-ink-muted uppercase tracking-wider mb-1">Elements</Text>
-                <Text className="font-headline-sm text-xl text-ink-obsidian font-bold">18</Text>
-              </View>
-              <View className="flex-1 border-l border-border-vellum pl-4">
-                <Text className="font-label-sm text-xs text-ink-muted uppercase tracking-wider mb-1">Hearing In</Text>
-                <Text className="font-headline-sm text-xl text-ink-espresso font-bold">4 Days</Text>
-              </View>
-            </View>
-
-            <View className="flex-row gap-3">
-              <TouchableOpacity className="flex-1 flex-row items-center justify-center gap-2 h-12 rounded-xl bg-ink-obsidian">
-                <Icon name="hub" size={20} color="#ffffff" />
-                <Text className="text-surface-bright font-label-lg font-bold">Case Map</Text>
-              </TouchableOpacity>
-              <TouchableOpacity className="flex-1 flex-row items-center justify-center gap-2 h-12 rounded-xl bg-surface-container-high">
-                <Icon name="description" size={20} color="#2d2a26" />
-                <Text className="text-ink-obsidian font-label-lg font-bold">Brief</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Active Dockets List */}
-          <View className="flex-col gap-4 mt-2">
-            <View className="flex-row items-center justify-between mb-2">
-              <Text className="font-headline-md text-xl text-ink-obsidian font-bold tracking-tight">Active Cases</Text>
-              <TouchableOpacity>
-                <Text className="text-ink-muted font-label-md">View All</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Case Item 1 */}
-            <TouchableOpacity className="p-4 rounded-2xl bg-surface-container-lowest border border-border-vellum flex-row items-center justify-between">
-              <View className="flex-1 pr-4">
-                <Text className="font-mono text-xs text-ink-muted mb-1 font-semibold">#2025-CV-1104</Text>
-                <Text className="font-headline-sm text-base text-ink-obsidian font-bold mb-1" numberOfLines={1}>Vance Corp v. Apex Logistics</Text>
-                <Text className="font-body-sm text-ink-muted text-sm" numberOfLines={1}>Civil Antitrust</Text>
-              </View>
-              <Icon name="chevron-right" size={24} color="#aaa395" />
-            </TouchableOpacity>
-
-            {/* Case Item 2 */}
-            <TouchableOpacity className="p-4 rounded-2xl bg-surface-container-lowest border border-border-vellum flex-row items-center justify-between">
-              <View className="flex-1 pr-4">
-                <Text className="font-mono text-xs text-ink-muted mb-1 font-semibold">#2024-PT-901</Text>
-                <Text className="font-headline-sm text-base text-ink-obsidian font-bold mb-1" numberOfLines={1}>In re Horizon BioTech</Text>
-                <Text className="font-body-sm text-ink-muted text-sm" numberOfLines={1}>Patent Infringement</Text>
-              </View>
-              <View className="flex-row items-center gap-1">
-                <Icon name="schedule" size={16} color="#c59b27" />
-                <Icon name="chevron-right" size={24} color="#aaa395" />
-              </View>
-            </TouchableOpacity>
-
-            {/* Case Item 3 */}
-            <TouchableOpacity className="p-4 rounded-2xl bg-surface-container-lowest border border-error/20 flex-row items-center justify-between">
-              <View className="flex-1 pr-4">
-                <Text className="font-mono text-xs text-error mb-1 font-semibold">#2025-CR-044 • Action Required</Text>
-                <Text className="font-headline-sm text-base text-ink-obsidian font-bold mb-1" numberOfLines={1}>Commonwealth v. Miller</Text>
-                <Text className="font-body-sm text-ink-muted text-sm" numberOfLines={1}>Criminal Defense</Text>
-              </View>
-              <Icon name="chevron-right" size={24} color="#aaa395" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Quick Actions */}
-          <View className="flex-row items-center justify-between pt-4 pb-6">
-            <TouchableOpacity className="flex-row items-center gap-2 px-4 py-3 rounded-xl bg-surface-container-lowest border border-border-vellum flex-1 mr-2 justify-center">
-              <Icon name="archive" size={20} color="#757065" />
-              <Text className="text-ink-muted font-label-md font-semibold">Archive</Text>
-            </TouchableOpacity>
-            <TouchableOpacity className="flex-row items-center gap-2 px-4 py-3 rounded-xl bg-surface-container-lowest border border-border-vellum flex-1 ml-2 justify-center">
-              <Icon name="cloud-sync" size={20} color="#c59b27" />
-              <Text className="text-gold-burnished font-label-md font-bold">Sync Filings</Text>
-            </TouchableOpacity>
-          </View>
-
+            </>
+          )}
         </View>
       </ScrollView>
-
-      <BottomNav onSetupPress={onNavigateToSetup} onAuditPress={onNavigateToAudit} onCaseMapPress={onNavigateToCaseMap} activeTab="dockets" />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 130,
+  },
+  bodyContainer: {
+    paddingHorizontal: 24,
+    paddingTop: 18,
+    gap: 26,
+  },
+  sectionBlock: {
+    gap: 14,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  carouselScroll: {
+    marginHorizontal: -24,
+  },
+  carouselContent: {
+    paddingHorizontal: 24,
+    gap: 16,
+    paddingVertical: 4,
+  },
+  emptyFilterBox: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  allTasksAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  tasksList: {
+    gap: 12,
+  },
+});
