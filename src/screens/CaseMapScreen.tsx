@@ -1,182 +1,435 @@
-import React, { useState } from 'react';
-import { View, ScrollView, Text, TouchableOpacity } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
+import React, { useMemo, useState } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { MaterialIcons as Icon } from '@expo/vector-icons';
-import { BottomNav } from '../components/BottomNav';
+import {
+  Chip,
+  EmptyState,
+  ErrorState,
+  GlassButton,
+  GlassInput,
+  LoadingState,
+  Reveal,
+  ScreenHeader,
+  Tab,
+  WavePatternBackground,
+  labelKeys,
+} from '../components/ui';
+import { useCases } from '../context/CasesContext';
+import { useSettings, useTheme } from '../context/SettingsContext';
+import { caseService } from '../services/caseService';
+import { fonts, radius } from '../theme/theme';
+import { CanvasNode, NodeType } from '../types/api.types';
 
-export default function CaseMapScreen({ onNavigateToSetup, onNavigateToDockets, onNavigateToAudit }: { onNavigateToSetup?: () => void, onNavigateToDockets?: () => void, onNavigateToAudit?: () => void }) {
-  const insets = useSafeAreaInsets();
-  const [activeFilter, setActiveFilter] = useState('All');
+const NODE_TYPES: NodeType[] = ['FACT', 'EVIDENCE', 'LAW', 'JURISPRUDENCE'];
+const NODE_ICONS: Record<NodeType, React.ComponentProps<typeof Icon>['name']> = {
+  FACT: 'push-pin',
+  EVIDENCE: 'folder-special',
+  LAW: 'account-balance',
+  JURISPRUDENCE: 'menu-book',
+};
 
-  const filters = ['All', 'Facts', 'Evidence', 'Statutes'];
+export default function CaseMapScreen({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
+  const palette = useTheme();
+  const { t, language } = useSettings();
+  const { selectedCase, canvas, reloadCanvas, applyCanvas } = useCases();
+
+  const [filter, setFilter] = useState<NodeType | 'ALL'>('ALL');
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [narrative, setNarrative] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState(false);
+
+  const graph = canvas.data?.canvas;
+  const nodes = useMemo(
+    () => (graph?.nodes ?? []).filter((n) => filter === 'ALL' || n.type === filter),
+    [graph, filter]
+  );
+
+  const selectedNode: CanvasNode | undefined = graph?.nodes.find((n) => n.id === selectedNodeId);
+  const relations = useMemo(() => {
+    if (!graph || !selectedNode) return [];
+    return graph.edges
+      .filter((e) => e.source === selectedNode.id || e.target === selectedNode.id)
+      .map((e) => {
+        const outgoing = e.source === selectedNode.id;
+        const other = graph.nodes.find((n) => n.id === (outgoing ? e.target : e.source));
+        return { id: e.id, outgoing, type: e.relationshipType, other };
+      });
+  }, [graph, selectedNode]);
+
+  const send = async () => {
+    if (!selectedCase || !narrative.trim()) return;
+    setSending(true);
+    setSendError(false);
+    try {
+      const result = await caseService.postNarrativeText(selectedCase.id, narrative.trim(), language);
+      applyCanvas(result.canvas);
+      setNarrative('');
+    } catch {
+      setSendError(true);
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
-    <View className="flex-1 bg-surface relative" style={{ paddingBottom: insets.bottom }}>
-      {/* Header */}
-      <View className="absolute top-0 w-full z-50 bg-surface/95 border-b border-border-vellum shadow-sm" style={{ paddingTop: insets.top }}>
-        <View className="h-16 px-margin flex-row items-center justify-between">
-          <View className="flex-row items-center gap-space-sm">
-            <LinearGradient colors={['#d4af37', '#c59b27']} className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm">
-              <Icon name="gavel" size={18} color="#181716" />
-            </LinearGradient>
-            <Text className="font-headline-md text-xl text-ink-obsidian font-bold tracking-tight">Case Map</Text>
-          </View>
-          <View className="flex-row items-center gap-2">
-            <TouchableOpacity className="w-10 h-10 rounded-full flex items-center justify-center">
-              <Icon name="search" size={24} color="#2d2a26" />
-            </TouchableOpacity>
-            <View className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center ml-1">
-              <Icon name="person" size={18} color="#181716" />
+    <KeyboardAvoidingView
+      style={[styles.screen, { backgroundColor: palette.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScreenHeader
+        title={t('map.title')}
+        subtitle={selectedCase?.title ?? t('cases.subtitle')}
+        right={
+          graph ? (
+            <View
+              style={[
+                styles.counterBadge,
+                {
+                  backgroundColor: palette.secondaryCard,
+                  borderColor: palette.border,
+                },
+              ]}
+            >
+              <Text style={{ fontFamily: fonts.heading, fontSize: 16, color: palette.text }}>
+                {graph.nodes.length}
+              </Text>
+              <Text style={{ fontFamily: fonts.medium, fontSize: 10, color: palette.textMuted }}>
+                {t('common.elements')}
+              </Text>
             </View>
-          </View>
-        </View>
-      </View>
+          ) : undefined
+        }
+      />
 
-      <ScrollView 
-        className="flex-1 w-full pt-16 z-10"
-        contentContainerStyle={{ paddingBottom: 120 }}
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
       >
-        <View className="flex-col w-full gap-4">
-          
-          {/* Subheader */}
-          <View className="px-margin pt-4 flex-row items-baseline justify-between">
-            <View>
-              <Text className="font-headline-md text-2xl text-ink-obsidian font-bold tracking-tight">State v. Sterling</Text>
-              <Text className="font-body-sm text-sm text-ink-muted mt-1">Docket #882-CR</Text>
-            </View>
-            <View className="items-end bg-surface-container-lowest px-3 py-1.5 rounded-lg border border-border-vellum">
-              <Text className="font-headline-sm text-lg text-ink-obsidian font-bold">18</Text>
-              <Text className="font-label-sm text-[10px] text-ink-muted uppercase">Elements</Text>
-            </View>
-          </View>
-
-          {/* Filters */}
-          <View className="px-margin">
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row overflow-visible" contentContainerStyle={{ gap: 8 }}>
-              {filters.map((filter) => (
-                <TouchableOpacity 
-                  key={filter}
-                  onPress={() => setActiveFilter(filter)}
-                  className={`px-4 py-2 rounded-full ${activeFilter === filter ? 'bg-ink-obsidian' : 'bg-surface-container-lowest border border-surface-container'}`}
-                >
-                  <Text className={`font-label-md text-sm ${activeFilter === filter ? 'text-surface-bright font-bold' : 'text-ink-muted'}`}>
-                    {filter}
-                  </Text>
-                </TouchableOpacity>
+        {!selectedCase ? (
+          <EmptyState
+            icon="folder-open"
+            title={t('map.noCase.title')}
+            body={t('map.noCase.body')}
+            actionLabel={t('nav.cases')}
+            onAction={() => onNavigate('cases')}
+          />
+        ) : canvas.loading && !canvas.data ? (
+          <LoadingState />
+        ) : canvas.error ? (
+          <ErrorState onRetry={reloadCanvas} />
+        ) : (
+          <>
+            {/* Category Filter Chips (Facts, Evidence, Statutes, Precedents) */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipRow}
+            >
+              <Chip
+                label={t('common.all')}
+                active={filter === 'ALL'}
+                onPress={() => setFilter('ALL')}
+              />
+              {NODE_TYPES.map((type) => (
+                <Chip
+                  key={type}
+                  label={t(labelKeys.filter(type))}
+                  active={filter === type}
+                  onPress={() => setFilter(type)}
+                />
               ))}
             </ScrollView>
-          </View>
 
-          {/* Interactive Canvas */}
-          <View className="px-margin">
-            <View className="relative w-full h-[360px] rounded-2xl overflow-hidden bg-surface-container-lowest shadow-sm border border-border-vellum">
-              
-              {/* Canvas Controls */}
-              <View className="absolute top-3 left-3 flex-col gap-2 z-20">
-                <View className="bg-surface/90 rounded-lg shadow-sm border border-border-vellum">
-                  <TouchableOpacity className="w-8 h-8 flex items-center justify-center border-b border-border-vellum">
-                    <Icon name="add" size={20} color="#2d2a26" />
-                  </TouchableOpacity>
-                  <TouchableOpacity className="w-8 h-8 flex items-center justify-center">
-                    <Icon name="remove" size={20} color="#2d2a26" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View className="absolute top-3 right-3 flex-row gap-2 z-20">
-                <TouchableOpacity className="w-10 h-10 rounded-full bg-ink-obsidian flex items-center justify-center shadow-sm">
-                  <Icon name="mic" size={20} color="#ffffff" />
-                </TouchableOpacity>
-                <TouchableOpacity className="w-10 h-10 rounded-full bg-gold-burnished flex items-center justify-center shadow-sm">
-                  <Icon name="add" size={24} color="#181716" />
-                </TouchableOpacity>
-              </View>
-
-              {/* Simplified Nodes */}
-              <View className="absolute inset-0 z-10 pointer-events-none">
-                
-                {/* Node 1 */}
-                <View className="absolute top-[80px] left-[20px] p-3 rounded-xl bg-surface-container-lowest shadow-md border-l-4 border-l-gold-burnished">
-                  <Text className="font-mono text-[10px] text-ink-muted mb-1">EVIDENCE • EX-D</Text>
-                  <Text className="font-headline-sm text-sm text-ink-obsidian font-bold">Phone Telemetry</Text>
-                </View>
-
-                {/* Node 2 */}
-                <View className="absolute top-[40px] right-[20px] p-3 rounded-xl bg-surface/90 shadow-sm border border-border-vellum">
-                  <Text className="font-mono text-[10px] text-ink-muted mb-1">RULE</Text>
-                  <Text className="font-headline-sm text-sm text-ink-obsidian font-bold">FRE 803(6)</Text>
-                </View>
-
-                {/* Node 3 */}
-                <View className="absolute top-[180px] left-[100px] p-3 rounded-xl bg-error/10 shadow-sm border border-error/20">
-                  <Text className="font-mono text-[10px] text-error font-bold mb-1">FACT PIVOT</Text>
-                  <Text className="font-headline-sm text-sm text-ink-obsidian font-bold">Timeline Discrepancy</Text>
-                </View>
-
-                {/* Node 4 */}
-                <View className="absolute bottom-[40px] right-[20px] p-3 rounded-xl bg-surface/90 shadow-sm border border-border-vellum">
-                  <Text className="font-mono text-[10px] text-ink-muted mb-1">WITNESS B</Text>
-                  <Text className="font-headline-sm text-sm text-ink-obsidian font-bold">Refutes Pier 4</Text>
-                </View>
-
-              </View>
-            </View>
-          </View>
-
-          {/* Conflict Alert Banner */}
-          <View className="px-margin">
-            <View className="p-4 rounded-xl bg-error-container/50 border border-error/30 flex-row items-center justify-between">
-              <View className="flex-row items-center gap-3 flex-1">
-                <Icon name="crisis-alert" size={24} color="#ba1a1a" />
-                <View>
-                  <Text className="font-headline-sm text-base font-bold text-on-error-container">Conflict Flagged</Text>
-                  <Text className="font-body-sm text-sm text-on-error-container/80">Witness contradicts device records.</Text>
-                </View>
-              </View>
-              <TouchableOpacity>
-                <Text className="text-error font-label-md text-sm font-bold">Review</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Inspector Panel */}
-          <View className="px-margin mb-6">
-            <View className="p-space-lg rounded-2xl bg-surface-container-lowest shadow-sm border border-border-vellum">
-              
-              <View className="flex-row items-start justify-between mb-4">
-                <View className="flex-1 pr-4">
-                  <Text className="font-mono text-xs text-ink-muted mb-1 font-semibold">#EX-004</Text>
-                  <Text className="font-headline-md text-xl text-ink-obsidian font-bold">Exhibit D: Telemetry</Text>
-                </View>
-                <TouchableOpacity className="w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center">
-                  <Icon name="more-horiz" size={24} color="#757065" />
-                </TouchableOpacity>
-              </View>
-
-              <View className="p-4 rounded-xl bg-surface-container-low mb-4">
-                <Text className="font-body-md text-sm text-ink-espresso leading-relaxed">
-                  Antenna data places the device within 400m of the facility at 11:42 PM, conflicting with Witness B's timeline. Admissible under FRE 803(6).
+            {/* Case Elements List */}
+            {graph && graph.nodes.length > 0 ? (
+              nodes.length === 0 ? (
+                <Text
+                  style={{
+                    textAlign: 'center',
+                    fontFamily: fonts.body,
+                    color: palette.textMuted,
+                    paddingVertical: 18,
+                  }}
+                >
+                  {t('map.noNodesFilter')}
                 </Text>
+              ) : (
+                <View style={styles.nodesList}>
+                  {nodes.map((node, i) => {
+                    const active = node.id === selectedNodeId;
+                    return (
+                      <Reveal key={node.id} index={Math.min(i, 8)}>
+                        <Pressable onPress={() => setSelectedNodeId(active ? null : node.id)}>
+                          <View
+                            style={[
+                              styles.nodeCard,
+                              active
+                                ? {
+                                    backgroundColor: palette.charcoal,
+                                    borderColor: palette.charcoal,
+                                    shadowColor: palette.shadow,
+                                    shadowOpacity: 0.16,
+                                  }
+                                : {
+                                    backgroundColor: palette.surface,
+                                    borderColor: palette.border,
+                                    shadowColor: palette.shadow,
+                                    shadowOpacity: 0.04,
+                                  },
+                            ]}
+                          >
+                            {active ? <WavePatternBackground variant="card" /> : null}
+                            <View style={styles.nodeTopRow}>
+                              <View
+                                style={[
+                                  styles.nodeIconCircle,
+                                  {
+                                    backgroundColor: active ? '#FFFFFF' : palette.secondaryCard,
+                                  },
+                                ]}
+                              >
+                                <Icon name={NODE_ICONS[node.type]} size={18} color="#1E1E20" />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text
+                                  style={{
+                                    fontFamily: fonts.medium,
+                                    fontSize: 11.5,
+                                    color: active ? palette.onCharcoalMuted : palette.textMuted,
+                                  }}
+                                >
+                                  {t(labelKeys.nodeType(node.type))} •{' '}
+                                  {node.origin === 'AI_GENERATED'
+                                    ? t('map.aiGenerated')
+                                    : t('map.userCreated')}
+                                </Text>
+                                <Text
+                                  style={{
+                                    fontFamily: fonts.heading,
+                                    fontSize: 16,
+                                    color: active ? palette.onCharcoal : palette.text,
+                                    marginTop: 2,
+                                  }}
+                                >
+                                  {node.title}
+                                </Text>
+                              </View>
+                              <Icon
+                                name={active ? 'expand-less' : 'expand-more'}
+                                size={22}
+                                color={active ? palette.onCharcoalMuted : palette.textMuted}
+                              />
+                            </View>
+
+                            <Text
+                              numberOfLines={active ? undefined : 2}
+                              style={{
+                                fontFamily: fonts.body,
+                                fontSize: 13.5,
+                                lineHeight: 19.5,
+                                color: active ? palette.onCharcoalMuted : palette.textMuted,
+                                marginTop: 10,
+                              }}
+                            >
+                              {node.content}
+                            </Text>
+
+                            {active && relations.length > 0 ? (
+                              <View style={styles.relationsSection}>
+                                <Text
+                                  style={{
+                                    fontFamily: fonts.semibold,
+                                    fontSize: 12,
+                                    color: palette.onCharcoal,
+                                    marginBottom: 6,
+                                  }}
+                                >
+                                  {t('map.relations')}
+                                </Text>
+                                {relations.map((r) => (
+                                  <View
+                                    key={r.id}
+                                    style={[
+                                      styles.relationBadge,
+                                      {
+                                        backgroundColor:
+                                          r.type === 'CONTRADICTS'
+                                            ? 'rgba(229, 72, 77, 0.22)'
+                                            : 'rgba(255, 255, 255, 0.1)',
+                                      },
+                                    ]}
+                                  >
+                                    <Icon
+                                      name={r.outgoing ? 'arrow-forward' : 'arrow-back'}
+                                      size={15}
+                                      color="#FFFFFF"
+                                    />
+                                    <Text
+                                      style={{
+                                        flex: 1,
+                                        fontFamily: fonts.medium,
+                                        fontSize: 12.5,
+                                        color: '#FFFFFF',
+                                      }}
+                                    >
+                                      {t(labelKeys.relation(r.type))} • {r.other?.title ?? '—'}
+                                    </Text>
+                                  </View>
+                                ))}
+                              </View>
+                            ) : null}
+                          </View>
+                        </Pressable>
+                      </Reveal>
+                    );
+                  })}
+                </View>
+              )
+            ) : (
+              <EmptyState icon="hub" title={t('map.empty.title')} body={t('map.empty.body')} />
+            )}
+
+            {/* Conversational Narrative Ingestion Card (FR-001) */}
+            <Reveal index={1}>
+              <View
+                style={[
+                  styles.narrativeCard,
+                  {
+                    backgroundColor: palette.surface,
+                    borderColor: palette.border,
+                    shadowColor: palette.shadow,
+                  },
+                ]}
+              >
+                <View style={styles.narrativeHeader}>
+                  <View
+                    style={[
+                      styles.nodeIconCircle,
+                      { backgroundColor: palette.secondaryCard },
+                    ]}
+                  >
+                    <Icon name="edit-note" size={20} color="#1E1E20" />
+                  </View>
+                  <Text
+                    style={{
+                      fontFamily: fonts.heading,
+                      fontSize: 17,
+                      color: palette.text,
+                    }}
+                  >
+                    {t('map.narrative.title')}
+                  </Text>
+                </View>
+
+                <GlassInput
+                  placeholder={t('map.narrative.placeholder')}
+                  value={narrative}
+                  onChangeText={setNarrative}
+                  multiline
+                  style={{ minHeight: 96, textAlignVertical: 'top', paddingTop: 14 }}
+                />
+
+                {sendError ? (
+                  <Text style={{ fontFamily: fonts.medium, fontSize: 13, color: palette.danger }}>
+                    {t('common.networkError')}
+                  </Text>
+                ) : null}
+
+                <GlassButton
+                  label={sending ? t('map.narrative.sending') : t('map.narrative.send')}
+                  icon="auto-awesome"
+                  onPress={send}
+                  loading={sending}
+                  disabled={!narrative.trim()}
+                />
               </View>
-
-              <View className="flex-row gap-3">
-                <TouchableOpacity className="flex-1 h-12 rounded-xl bg-ink-obsidian flex items-center justify-center">
-                  <Text className="text-surface-bright font-label-lg text-base font-bold">View Exhibit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity className="flex-1 h-12 rounded-xl bg-surface-container-high flex items-center justify-center">
-                  <Text className="text-ink-obsidian font-label-lg text-base font-bold">Attach Rule</Text>
-                </TouchableOpacity>
-              </View>
-
-            </View>
-          </View>
-
-        </View>
+            </Reveal>
+          </>
+        )}
       </ScrollView>
-
-      <BottomNav onSetupPress={onNavigateToSetup} onDocketsPress={onNavigateToDockets} onAuditPress={onNavigateToAudit} activeTab="case-map" />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 140,
+    gap: 18,
+  },
+  counterBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  chipRow: {
+    gap: 8,
+  },
+  nodesList: {
+    gap: 12,
+  },
+  nodeCard: {
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  nodeTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  nodeIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  relationsSection: {
+    marginTop: 14,
+    gap: 8,
+  },
+  relationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+  },
+  narrativeCard: {
+    borderRadius: 24,
+    padding: 20,
+    gap: 14,
+    borderWidth: 1,
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  narrativeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+});
