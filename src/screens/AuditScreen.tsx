@@ -1,164 +1,363 @@
-import React from 'react';
-import { View, ScrollView, Text, TouchableOpacity } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialIcons as Icon } from '@expo/vector-icons';
-import { BottomNav } from '../components/BottomNav';
+import {
+  DateStripSelector,
+  EmptyState,
+  ErrorState,
+  GlassButton,
+  LoadingState,
+  Reveal,
+  Tab,
+  TimelineAuditItem,
+  labelKeys,
+  toDateKey,
+} from '../components/ui';
+import { useAuth } from '../context/AuthContext';
+import { useCases } from '../context/CasesContext';
+import { useSettings, useTheme } from '../context/SettingsContext';
+import { fonts } from '../theme/theme';
 
-export default function AuditScreen({ onNavigateToSetup, onNavigateToDockets, onNavigateToCaseMap }: { onNavigateToSetup?: () => void, onNavigateToDockets?: () => void, onNavigateToCaseMap?: () => void }) {
+interface TimelineEntry {
+  id: string;
+  variant: 'active' | 'inactive';
+  title: string;
+  timestamp: string;
+  description: string;
+  recommendation?: string;
+  badges?: string[];
+  targetTab: Tab;
+}
+
+/**
+ * Screen 2 — Case Timeline & AI Audit Screen (Phase 3.2):
+ * - Top: Date header (e.g., "Oct 19, 2026"), bold "Today" / Docket title, lawyer avatar,
+ *   and 7-day horizontal <DateStripSelector /> with active dark charcoal vertical pill.
+ * - Body: Vertical timeline combining AI Audit alerts (FR-004) in the prominent dark charcoal
+ *   wave card and chronological case elements (Facts, Evidence, Statutes, Precedents) below.
+ */
+export default function AuditScreen({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   const insets = useSafeAreaInsets();
+  const palette = useTheme();
+  const { t, language } = useSettings();
+  const { user } = useAuth();
+  const { selectedCase, canvas, audit, runAudit } = useCases();
+
+  const [selectedDateKey, setSelectedDateKey] = useState<string>(() => toDateKey(new Date()));
+  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
+
+  const formattedDateHeader = useMemo(
+    () =>
+      selectedDate.toLocaleDateString(language === 'es' ? 'es' : 'en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }),
+    [selectedDate, language]
+  );
+
+  const formatTime = (iso: string) =>
+    new Date(iso).toLocaleTimeString(language === 'es' ? 'es' : 'en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+
+  const initials = (user?.fullName || 'LC')
+    .split(' ')
+    .filter(Boolean)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
+  const report = audit.data;
+  const outdated = Boolean(report && canvas.data && report.canvasVersion !== canvas.data.version);
+  const canvasEmpty = canvas.data ? canvas.data.canvas.nodes.length === 0 : false;
+
+  // Build unified chronological timeline from real AI Audit findings + real Case Map elements
+  const timelineEntries = useMemo<TimelineEntry[]>(() => {
+    if (!selectedCase) return [];
+    const items: TimelineEntry[] = [];
+
+    // 1. AI Audit findings (FR-004) — First/critical finding gets the prominent dark charcoal card
+    if (report && report.alerts.length > 0) {
+      const timeStr = formatTime(report.generatedAt);
+      report.alerts.forEach((alert, idx) => {
+        const isProminent = idx === 0 || alert.severity === 'HIGH';
+        items.push({
+          id: `alert-${alert.id}`,
+          variant: isProminent ? 'active' : 'inactive',
+          title: alert.title,
+          timestamp: timeStr,
+          description: alert.description,
+          recommendation: alert.recommendation
+            ? `${t('audit.recommendation')}: ${alert.recommendation}`
+            : undefined,
+          badges: [
+            alert.severity === 'HIGH' ? 'CR' : alert.severity === 'MEDIUM' ? 'WN' : 'NT',
+            'AI',
+            `V${report.canvasVersion}`,
+          ],
+          targetTab: 'caseMap',
+        });
+      });
+    } else if (report && report.alerts.length === 0) {
+      items.push({
+        id: `audit-clean-${report.auditId}`,
+        variant: 'active',
+        title: t('audit.clean.title'),
+        timestamp: formatTime(report.generatedAt),
+        description: t('audit.clean.body'),
+        badges: ['OK', 'AI', `V${report.canvasVersion}`],
+        targetTab: 'caseMap',
+      });
+    }
+
+    // 2. Chronological Case Elements (Facts, Evidence, Statutes, Precedents)
+    const nodes = canvas.data?.canvas.nodes ?? [];
+    const canvasTime = canvas.data ? formatTime(canvas.data.updatedAt) : formatTime(selectedCase.updatedAt);
+
+    nodes.forEach((node, idx) => {
+      const makeActive = !report && idx === 0;
+      const typeBadge =
+        node.type === 'FACT'
+          ? 'FC'
+          : node.type === 'EVIDENCE'
+            ? 'EV'
+            : node.type === 'LAW'
+              ? 'ST'
+              : 'PR';
+      items.push({
+        id: `node-${node.id}`,
+        variant: makeActive ? 'active' : 'inactive',
+        title: `${t(labelKeys.nodeType(node.type))} • ${node.title}`,
+        timestamp: canvasTime,
+        description: node.content,
+        badges: [typeBadge, node.origin === 'AI_GENERATED' ? 'AI' : ' JD', `V${selectedCase.canvasVersion}`],
+        targetTab: 'caseMap',
+      });
+    });
+
+    // 3. Docket Opening milestone
+    items.push({
+      id: `docket-created-${selectedCase.id}`,
+      variant: items.length === 0 ? 'active' : 'inactive',
+      title: selectedCase.title,
+      timestamp: formatTime(selectedCase.createdAt),
+      description:
+        selectedCase.description && selectedCase.description.trim().length > 0
+          ? selectedCase.description
+          : t('cases.defaultSummary'),
+      badges: ['DK', 'JD', `V${selectedCase.canvasVersion}`],
+      targetTab: 'caseMap',
+    });
+
+    return items;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCase, report, canvas.data, language, t]);
 
   return (
-    <View className="flex-1 bg-surface relative" style={{ paddingBottom: insets.bottom }}>
-      {/* Header */}
-      <View className="absolute top-0 w-full z-50 bg-surface/95 border-b border-border-vellum shadow-sm" style={{ paddingTop: insets.top }}>
-        <View className="h-16 px-margin flex-row items-center justify-between">
-          <View className="flex-row items-center gap-space-sm">
-            <LinearGradient colors={['#d4af37', '#c59b27']} className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm">
-              <Icon name="gavel" size={18} color="#181716" />
-            </LinearGradient>
-            <Text className="font-headline-md text-xl text-ink-obsidian font-bold tracking-tight">Audit</Text>
-          </View>
-          <View className="flex-row items-center gap-2">
-            <TouchableOpacity className="w-10 h-10 rounded-full flex items-center justify-center">
-              <Icon name="search" size={24} color="#2d2a26" />
-            </TouchableOpacity>
-            <View className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center ml-1">
-              <Icon name="person" size={18} color="#181716" />
-            </View>
-          </View>
-        </View>
-      </View>
-
-      <ScrollView 
-        className="flex-1 w-full pt-16 z-10"
-        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: insets.top + 70, paddingBottom: 120 }}
+    <View style={[styles.screen, { backgroundColor: palette.background }]}>
+      <ScrollView
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 16 }]}
       >
-        <View className="flex-col w-full gap-space-lg">
-          
-          {/* Context Banner */}
-          <View className="flex-row items-center justify-between pt-2">
-            <Text className="font-mono text-sm text-ink-espresso font-semibold">#882-CR • State v. Sterling</Text>
-            <View className="flex-row p-1 rounded-lg bg-surface-container-high">
-              <TouchableOpacity className="px-3 py-1 rounded bg-ink-obsidian">
-                <Text className="text-surface-bright font-label-sm font-bold">Real-Time</Text>
-              </TouchableOpacity>
-              <TouchableOpacity className="px-3 py-1 rounded">
-                <Text className="text-ink-muted font-label-sm font-semibold">Historical</Text>
-              </TouchableOpacity>
-            </View>
+        {/* Screen 2 Top Header: Date subtitle + Bold "Today" title + Circular Lawyer Avatar */}
+        <View style={styles.topHeader}>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text
+              style={{
+                fontFamily: fonts.medium,
+                fontSize: 13.5,
+                color: palette.textMuted,
+                marginBottom: 4,
+              }}
+            >
+              {formattedDateHeader}
+            </Text>
+            <Text
+              numberOfLines={1}
+              style={{
+                fontFamily: fonts.hero,
+                fontSize: 28,
+                lineHeight: 34,
+                letterSpacing: -0.5,
+                color: palette.text,
+              }}
+            >
+              {t('audit.today')}
+            </Text>
           </View>
 
-          {/* Solidity Benchmark Hero Card */}
-          <View className="rounded-2xl bg-surface-container-lowest p-space-lg shadow-sm border border-border-vellum">
-            <View className="flex-row items-center justify-between mb-6">
-              <View>
-                <Text className="font-label-sm text-xs text-ink-muted uppercase tracking-widest mb-1">Solidity Benchmark</Text>
-                <View className="flex-row items-baseline gap-2">
-                  <Text className="font-headline-lg text-4xl text-ink-obsidian font-bold tracking-tight">86%</Text>
-                  <Icon name="trending-up" size={20} color="#c59b27" />
-                </View>
-              </View>
-              <TouchableOpacity className="w-10 h-10 rounded-full bg-surface-container-low flex items-center justify-center border border-border-vellum">
-                <Icon name="sync" size={20} color="#2d2a26" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Simplified Evidentiary Bar Chart */}
-            <View className="flex-row items-end justify-between gap-3 h-28 mt-2">
-              <View className="flex-1 items-center h-full justify-end">
-                <View className="w-full bg-surface-container-high rounded-t-lg" style={{ height: '35%' }} />
-                <Text className="font-label-sm text-xs text-ink-muted mt-2">Facts</Text>
-              </View>
-              <View className="flex-1 items-center h-full justify-end relative">
-                <View className="bg-ink-obsidian px-2 py-0.5 rounded shadow-sm mb-2">
-                  <Text className="font-label-sm text-xs font-bold text-surface-bright">94%</Text>
-                </View>
-                <LinearGradient colors={['#c59b27', '#d4af37']} className="w-full rounded-t-lg shadow-sm" style={{ height: '94%' }} />
-                <Text className="font-label-sm text-xs font-bold text-ink-obsidian mt-2">Evidence</Text>
-              </View>
-              <View className="flex-1 items-center h-full justify-end">
-                <View className="w-full bg-surface-container-high rounded-t-lg" style={{ height: '42%' }} />
-                <Text className="font-label-sm text-xs text-ink-muted mt-2">Rules</Text>
-              </View>
-              <View className="flex-1 items-center h-full justify-end">
-                <View className="w-full bg-surface-container-high rounded-t-lg" style={{ height: '58%' }} />
-                <Text className="font-label-sm text-xs text-ink-muted mt-2">Preced.</Text>
-              </View>
-              <View className="flex-1 items-center h-full justify-end">
-                <View className="w-full bg-error/20 rounded-t-lg border-t border-error/40" style={{ height: '28%' }} />
-                <Text className="font-label-sm text-xs text-error mt-2 font-semibold">Witness</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Critical Vulnerabilities */}
-          <View className="gap-4">
-            <View className="flex-row items-center justify-between">
-              <Text className="font-headline-md text-xl text-ink-obsidian font-bold tracking-tight">Critical Alerts</Text>
-              <View className="w-6 h-6 rounded-full bg-error flex items-center justify-center">
-                <Text className="text-on-error font-label-sm text-xs font-bold">2</Text>
-              </View>
-            </View>
-
-            {/* Alert Card 1 */}
-            <View className="rounded-2xl bg-surface-container-lowest p-space-md shadow-sm border border-error/30 border-l-4 border-l-error">
-              <View className="flex-row items-center gap-3 mb-2">
-                <Icon name="warning" size={20} color="#ba1a1a" />
-                <Text className="font-headline-sm text-base text-ink-obsidian font-bold">Procedural Gap Detected</Text>
-              </View>
-              <Text className="font-body-md text-sm text-ink-espresso leading-relaxed mb-4">
-                Deposition timeline of Exhibit D contains a 48-hour gap unreconciled with defendant's cellular records.
+          <Pressable onPress={() => onNavigate('settings')} style={styles.avatarRing}>
+            <View
+              style={[
+                styles.avatarCircle,
+                {
+                  backgroundColor: palette.secondaryCard,
+                  borderColor: palette.border,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  fontFamily: fonts.heading,
+                  fontSize: 14,
+                  color: palette.text,
+                }}
+              >
+                {initials}
               </Text>
-              <TouchableOpacity className="flex-row items-center justify-between">
-                <Text className="font-mono text-xs text-ink-muted">Exhibit D • p.114</Text>
-                <Text className="font-label-md text-sm text-error font-bold">Review Gap</Text>
-              </TouchableOpacity>
             </View>
+          </Pressable>
+        </View>
 
-            {/* Alert Card 2 */}
-            <View className="rounded-2xl bg-surface-container-lowest p-space-md shadow-sm border border-[rgba(197,155,39,0.3)] border-l-4 border-l-gold-burnished">
-              <View className="flex-row items-center gap-3 mb-2">
-                <Icon name="difference" size={20} color="#c59b27" />
-                <Text className="font-headline-sm text-base text-ink-obsidian font-bold">Logical Contradiction</Text>
-              </View>
-              <Text className="font-body-md text-sm text-ink-espresso leading-relaxed mb-4">
-                Cross-statement divergence between Witness B and Expert Report on vehicle deceleration.
-              </Text>
-              <TouchableOpacity className="flex-row items-center justify-between">
-                <Text className="font-mono text-xs text-ink-muted">Witness B • p.42</Text>
-                <Text className="font-label-md text-sm text-gold-burnished font-bold">Compare Records</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+        {/* Horizontal 7-Day Date Strip Selector */}
+        <View style={styles.dateStripContainer}>
+          <DateStripSelector
+            selectedDateKey={selectedDateKey}
+            onSelectDate={(key, date) => {
+              setSelectedDateKey(key);
+              setSelectedDate(date);
+            }}
+          />
+        </View>
 
-          {/* Verified Citations */}
-          <View className="gap-4">
-            <View className="flex-row items-center justify-between">
-              <Text className="font-headline-md text-xl text-ink-obsidian font-bold tracking-tight">Verified Citations</Text>
-              <TouchableOpacity>
-                <Text className="font-label-md text-sm text-ink-muted">View Tree</Text>
-              </TouchableOpacity>
-            </View>
-            <View className="flex-row gap-4">
-              <View className="flex-1 p-4 rounded-xl bg-surface-container-lowest shadow-sm border border-border-vellum">
-                <Icon name="folder-special" size={24} color="#c59b27" className="mb-2" />
-                <Text className="font-headline-sm text-base text-ink-obsidian font-bold mb-1">Ex. A-104</Text>
-                <Text className="font-body-sm text-xs text-ink-muted">Chain of Custody Verif.</Text>
-              </View>
-              <View className="flex-1 p-4 rounded-xl bg-surface-container-lowest shadow-sm border border-border-vellum">
-                <Icon name="account-balance" size={24} color="#757065" className="mb-2" />
-                <Text className="font-headline-sm text-base text-ink-obsidian font-bold mb-1">FRE 803(6)</Text>
-                <Text className="font-body-sm text-xs text-ink-muted">Business Records</Text>
-              </View>
-            </View>
-          </View>
+        {/* Active Docket Action Bar & Audit Trigger */}
+        <View style={styles.bodyContainer}>
+          {!selectedCase ? (
+            <EmptyState
+              icon="gavel"
+              title={t('audit.noCase.title')}
+              body={t('audit.noCase.body')}
+              actionLabel={t('nav.cases')}
+              onAction={() => onNavigate('cases')}
+            />
+          ) : canvas.loading && !canvas.data ? (
+            <LoadingState />
+          ) : canvas.error ? (
+            <ErrorState />
+          ) : (
+            <>
+              {/* Compact Docket Bar + Run AI Audit CTA */}
+              <View
+                style={[
+                  styles.auditToolbar,
+                  {
+                    backgroundColor: palette.secondaryCard,
+                    borderColor: palette.border,
+                  },
+                ]}
+              >
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontFamily: fonts.semibold,
+                      fontSize: 14.5,
+                      color: palette.text,
+                    }}
+                  >
+                    {selectedCase.title}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontFamily: fonts.body,
+                      fontSize: 12,
+                      color: palette.textMuted,
+                      marginTop: 2,
+                    }}
+                  >
+                    {canvasEmpty
+                      ? t('audit.emptyCanvas')
+                      : outdated
+                        ? t('audit.outdated')
+                        : `${canvas.data?.canvas.nodes.length ?? 0} ${t('common.elements')} • ${t('common.version')} ${selectedCase.canvasVersion}`}
+                  </Text>
+                </View>
 
+                <GlassButton
+                  label={audit.loading ? t('audit.running') : t('audit.run')}
+                  icon="auto-awesome"
+                  onPress={runAudit}
+                  loading={audit.loading}
+                  disabled={!canvas.data || canvasEmpty}
+                />
+              </View>
+
+              {audit.error ? <ErrorState onRetry={runAudit} /> : null}
+
+              {/* Vertical Timeline Combining AI Audit Alerts + Chronological Case Elements */}
+              <View style={styles.timelineWrapper}>
+                {timelineEntries.map((item, idx) => (
+                  <Reveal key={item.id} index={idx}>
+                    <TimelineAuditItem
+                      variant={item.variant}
+                      title={item.title}
+                      timestamp={item.timestamp}
+                      description={item.description}
+                      recommendation={item.recommendation}
+                      badges={item.badges}
+                      isLast={idx === timelineEntries.length - 1}
+                      onActionPress={() =>
+                        canvasEmpty ? onNavigate('caseMap') : !report ? runAudit() : onNavigate(item.targetTab)
+                      }
+                    />
+                  </Reveal>
+                ))}
+              </View>
+            </>
+          )}
         </View>
       </ScrollView>
-
-      <BottomNav onSetupPress={onNavigateToSetup} onDocketsPress={onNavigateToDockets} onCaseMapPress={onNavigateToCaseMap} activeTab="audit" />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 130,
+  },
+  topHeader: {
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  avatarRing: {
+    padding: 2,
+  },
+  avatarCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateStripContainer: {
+    paddingHorizontal: 18,
+    marginTop: 14,
+  },
+  bodyContainer: {
+    paddingHorizontal: 24,
+    marginTop: 18,
+    gap: 20,
+  },
+  auditToolbar: {
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  timelineWrapper: {
+    marginTop: 4,
+  },
+});
