@@ -1,69 +1,101 @@
 import { StatusBar } from 'expo-status-bar';
-import React, { useState, useEffect } from 'react';
-import { View, Text, ActivityIndicator } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { useFonts } from 'expo-font';
-import { 
-  NotoSerif_400Regular,
-  NotoSerif_500Medium,
-  NotoSerif_600SemiBold 
-} from '@expo-google-fonts/noto-serif';
-import { 
+import {
   PlusJakartaSans_400Regular,
+  PlusJakartaSans_500Medium,
   PlusJakartaSans_600SemiBold,
-  PlusJakartaSans_700Bold 
+  PlusJakartaSans_700Bold,
+  PlusJakartaSans_800ExtraBold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 
 import './global.css';
+import { SettingsProvider, useSettings } from './src/context/SettingsContext';
+import { AuthProvider } from './src/context/AuthContext';
+import { CasesProvider } from './src/context/CasesContext';
+import { GlassBackground } from './src/components/Glass';
+import { BottomTabBar, Tab } from './src/components/ui';
+import { NewCaseSheet } from './src/components/NewCaseSheet';
 import DashboardScreen from './src/screens/DashboardScreen';
-import SetupScreen from './src/screens/SetupScreen';
 import AuditScreen from './src/screens/AuditScreen';
 import CaseMapScreen from './src/screens/CaseMapScreen';
-import { useColorScheme } from 'nativewind';
+import SettingsScreen from './src/screens/SettingsScreen';
 
-export default function App() {
+function Shell() {
+  const { theme } = useSettings();
+  const [tab, setTab] = useState<Tab>('cases');
+  const [newCaseOpen, setNewCaseOpen] = useState(false);
+
+  // Top of DashboardScreen has a dark charcoal hero header, so status bar icons are light on 'cases'
+  const statusBarStyle = tab === 'cases' ? 'light' : theme === 'dark' ? 'light' : 'dark';
+
+  return (
+    <GlassBackground>
+      <StatusBar style={statusBarStyle} />
+      <CasesProvider>
+        <Animated.View key={tab} style={{ flex: 1 }} entering={FadeIn.duration(100)}>
+          {tab === 'cases' && (
+            <DashboardScreen onNavigate={setTab} onNewCase={() => setNewCaseOpen(true)} />
+          )}
+          {tab === 'audit' && <AuditScreen onNavigate={setTab} />}
+          {tab === 'caseMap' && <CaseMapScreen onNavigate={setTab} />}
+          {tab === 'settings' && <SettingsScreen />}
+        </Animated.View>
+        <BottomTabBar
+          active={tab}
+          onChange={setTab}
+          onFabPress={() => setNewCaseOpen(true)}
+        />
+        <NewCaseSheet
+          visible={newCaseOpen}
+          onClose={() => setNewCaseOpen(false)}
+          onCreated={() => setTab('cases')}
+        />
+      </CasesProvider>
+    </GlassBackground>
+  );
+}
+
+function Root() {
   const [fontsLoaded] = useFonts({
-    NotoSerif_400Regular,
-    NotoSerif_500Medium,
-    NotoSerif_600SemiBold,
     PlusJakartaSans_400Regular,
+    PlusJakartaSans_500Medium,
     PlusJakartaSans_600SemiBold,
     PlusJakartaSans_700Bold,
+    PlusJakartaSans_800ExtraBold,
   });
+  const { hydrated } = useSettings();
 
-  const [currentScreen, setCurrentScreen] = useState<'Dashboard' | 'Audit' | 'CaseMap' | 'Setup'>('Dashboard');
-  const { setColorScheme } = useColorScheme();
-
-  useEffect(() => {
-    setColorScheme('light');
-  }, []);
-
-  if (!fontsLoaded) {
+  if (!fontsLoaded || !hydrated) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fcf9f1' }}>
-        <ActivityIndicator size="large" color="#c59b27" />
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: '#F8F9FB',
+        }}
+      >
+        <ActivityIndicator size="large" color="#1E1E20" />
       </View>
     );
   }
+  return (
+    <AuthProvider>
+      <Shell />
+    </AuthProvider>
+  );
+}
 
-  const navigateTo = (screen: 'Dashboard' | 'Audit' | 'CaseMap' | 'Setup') => {
-    setCurrentScreen(screen);
-  };
-
-  const navProps = {
-    onNavigateToDockets: () => navigateTo('Dashboard'),
-    onNavigateToAudit: () => navigateTo('Audit'),
-    onNavigateToCaseMap: () => navigateTo('CaseMap'),
-    onNavigateToSetup: () => navigateTo('Setup'),
-  };
-
+export default function App() {
   return (
     <SafeAreaProvider>
-      <StatusBar style="auto" />
-      {currentScreen === 'Dashboard' && <DashboardScreen {...navProps} />}
-      {currentScreen === 'Audit' && <AuditScreen {...navProps} />}
-      {currentScreen === 'CaseMap' && <CaseMapScreen {...navProps} />}
-      {currentScreen === 'Setup' && <SetupScreen {...navProps} onBack={() => navigateTo('Dashboard')} />}
+      <SettingsProvider>
+        <Root />
+      </SettingsProvider>
     </SafeAreaProvider>
   );
 }
