@@ -92,3 +92,59 @@ export interface NarrativeProcessingResult {
   generatedEdgeIds?: Uuid[];
   canvas: CanvasSnapshot;
 }
+
+// -- Auth (FR-008)
+export interface UserProfile {
+  id: Uuid;
+  email: string;
+  fullName: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthTokenResponse {
+  accessToken: string;
+  tokenType: 'Bearer';
+  expiresIn: number;
+  user: UserProfile;
+}
+
+// -- Cases (write)
+export interface CreateCaseRequest {
+  title: string;
+  description?: string;
+  clientReference?: string;
+}
+
+// -- Audit
+export type AlertSeverity = 'HIGH' | 'MEDIUM' | 'LOW';
+export type AlertType =
+  | 'PROCEDURAL_GAP'
+  | 'LOGICAL_CONTRADICTION'
+  | 'EVIDENCE_CONFLICT'
+  | 'UNSUPPORTED_FACT'
+  | 'MISSING_LEGAL_BASIS'
+  | 'CASE_THEORY_WEAKNESS'
+  | 'STRUCTURAL_ISSUE';
+
+export interface AuditAlert {
+  id: Uuid;
+  severity: AlertSeverity;
+  type: AlertType;
+  title: string;
+  description: string;
+  recommendation?: string;
+  relatedNodeIds: Uuid[];
+  relatedEdgeIds: Uuid[];
+}
+
+export interface AuditReport {
+  auditId: Uuid;
+  caseId: Uuid;
+  canvasVersion: CanvasVersion;
+  generatedAt: Timestamp;
+  alerts: AuditAlert[];
+}
