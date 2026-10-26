@@ -10,12 +10,14 @@ const DEFAULTS = {
   theme: 'light' as ThemeMode,
   language: 'en' as Language,
   biometricEnabled: false,
+  autoTranslate: true,
 };
 
 interface PersistedSettings {
   theme: ThemeMode;
   language: Language;
   biometricEnabled: boolean;
+  autoTranslate: boolean;
 }
 
 interface SettingsContextValue extends PersistedSettings {
@@ -24,6 +26,7 @@ interface SettingsContextValue extends PersistedSettings {
   setTheme: (theme: ThemeMode) => void;
   setLanguage: (language: Language) => void;
   setBiometricEnabled: (enabled: boolean) => void;
+  setAutoTranslate: (enabled: boolean) => void;
   t: (key: TranslationKey) => string;
 }
 
@@ -43,6 +46,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           theme: parsed.theme === 'dark' ? 'dark' : 'light',
           language: parsed.language === 'es' ? 'es' : 'en',
           biometricEnabled: parsed.biometricEnabled === true,
+          autoTranslate: parsed.autoTranslate !== false,
         });
       })
       .catch(() => undefined)
@@ -68,6 +72,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       setTheme: (theme) => update({ theme }),
       setLanguage: (language) => update({ language }),
       setBiometricEnabled: (biometricEnabled) => update({ biometricEnabled }),
+      setAutoTranslate: (autoTranslate) => update({ autoTranslate }),
       t: (key) => translations[settings.language][key],
     }),
     [settings, hydrated, update]

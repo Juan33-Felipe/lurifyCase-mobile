@@ -14,6 +14,7 @@ export interface CaseCarouselCardProps {
   summary: string;
   reference?: string;
   icon?: IconName;
+  isTranslated?: boolean;
   onPress?: () => void;
   onArrowPress?: () => void;
 }
@@ -32,6 +33,7 @@ export function CaseCarouselCard({
   summary,
   reference,
   icon = 'gavel',
+  isTranslated,
   onPress,
   onArrowPress,
 }: CaseCarouselCardProps) {
@@ -66,24 +68,29 @@ export function CaseCarouselCard({
       >
         {isPrimary ? <WavePatternBackground variant="card" /> : null}
 
-        {/* Top Row: Circular white icon container + optional docket reference */}
+        {/* Top Row: Circular white icon container + optional docket reference & translation indicator */}
         <View style={styles.topRow}>
           <View style={styles.iconCircle}>
             <Icon name={icon} size={20} color="#1E1E20" />
           </View>
-          {reference ? (
-            <Text
-              numberOfLines={1}
-              style={{
-                fontFamily: fonts.medium,
-                fontSize: 11,
-                color: subColor,
-                maxWidth: 96,
-              }}
-            >
-              {reference}
-            </Text>
-          ) : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            {isTranslated ? (
+              <Icon name="translate" size={13} color={subColor} style={{ opacity: 0.8 }} />
+            ) : null}
+            {reference ? (
+              <Text
+                numberOfLines={1}
+                style={{
+                  fontFamily: fonts.medium,
+                  fontSize: 11,
+                  color: subColor,
+                  maxWidth: 88,
+                }}
+              >
+                {reference}
+              </Text>
+            ) : null}
+          </View>
         </View>
 
         {/* Middle: Bold Title + 3-line Subtitle */}

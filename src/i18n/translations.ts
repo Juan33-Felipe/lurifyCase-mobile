@@ -44,6 +44,7 @@ const en = {
   'cases.new.titleRequired': 'Please enter the matter title.',
   'cases.reference': 'Docket',
   'cases.defaultSummary': 'Active litigation file. Open the case map to record facts, evidentiary exhibits, and applicable statutes.',
+  'cases.translated': 'Translated',
 
   // Quick Action Tasks (Screen 1 bottom)
   'tasks.title': 'Pending Actions',
@@ -132,6 +133,8 @@ const en = {
   'settings.language': 'Interface Language',
   'settings.language.en': 'English',
   'settings.language.es': 'Español',
+  'settings.autoTranslate': 'Auto-Translate Dockets',
+  'settings.autoTranslateHint': 'Automatically translate case dockets, facts, and audits to the interface language.',
   'settings.security': 'Confidentiality & Access',
   'settings.biometric': 'Biometric Lock',
   'settings.biometricHint': 'Require Face ID or fingerprint when reopening dockets.',
@@ -187,6 +190,7 @@ const es: Record<TranslationKey, string> = {
   'cases.new.titleRequired': 'Ingresa el título del expediente.',
   'cases.reference': 'Radicado',
   'cases.defaultSummary': 'Expediente en litigio activo. Abre el mapa del caso para registrar hechos, acervo probatorio y normas aplicables.',
+  'cases.translated': 'Traducido',
 
   // Quick Action Tasks (Screen 1 bottom)
   'tasks.title': 'Acciones Pendientes',
@@ -275,6 +279,8 @@ const es: Record<TranslationKey, string> = {
   'settings.language': 'Idioma de la Interfaz',
   'settings.language.en': 'English',
   'settings.language.es': 'Español',
+  'settings.autoTranslate': 'Traducción Automática',
+  'settings.autoTranslateHint': 'Traduce expedientes, hechos y auditorías automáticamente al idioma de la interfaz.',
   'settings.security': 'Confidencialidad y Acceso',
   'settings.biometric': 'Bloqueo Biométrico',
   'settings.biometricHint': 'Solicitar Face ID o huella al reabrir los expedientes.',

@@ -73,7 +73,9 @@ export default function DashboardScreen({
       if (!q) return true;
       return (
         c.title.toLowerCase().includes(q) ||
+        (c.originalTitle?.toLowerCase().includes(q) ?? false) ||
         (c.description?.toLowerCase().includes(q) ?? false) ||
+        (c.originalDescription?.toLowerCase().includes(q) ?? false) ||
         (c.clientReference?.toLowerCase().includes(q) ?? false)
       );
     });
@@ -282,6 +284,7 @@ export default function DashboardScreen({
                             summary={summaryText}
                             reference={c.clientReference}
                             icon={icon}
+                            isTranslated={c.isTranslated}
                             onPress={() => selectCase(c.id)}
                             onArrowPress={() => handleOpenCaseMap(c)}
                           />

@@ -8,8 +8,17 @@ import { fonts, radius } from '../theme/theme';
 
 export default function SettingsScreen() {
   const palette = useTheme();
-  const { t, theme, setTheme, language, setLanguage, biometricEnabled, setBiometricEnabled } =
-    useSettings();
+  const {
+    t,
+    theme,
+    setTheme,
+    language,
+    setLanguage,
+    biometricEnabled,
+    setBiometricEnabled,
+    autoTranslate,
+    setAutoTranslate,
+  } = useSettings();
   const { user, signOut, biometricsAvailable, confirmBiometrics } = useAuth();
 
   const toggleBiometric = async (next: boolean) => {
@@ -94,7 +103,7 @@ export default function SettingsScreen() {
                 ]}
               />
             </Row>
-            <Row label={t('settings.language')} last>
+            <Row label={t('settings.language')}>
               <Segmented
                 value={language}
                 onChange={setLanguage}
@@ -104,6 +113,37 @@ export default function SettingsScreen() {
                 ]}
               />
             </Row>
+            <View style={[styles.securityRow, { paddingHorizontal: 0, paddingTop: 14 }]}>
+              <View
+                style={[
+                  styles.securityIconBox,
+                  { backgroundColor: palette.secondaryCard },
+                ]}
+              >
+                <Icon name="translate" size={20} color={palette.text} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: fonts.semibold, fontSize: 14.5, color: palette.text }}>
+                  {t('settings.autoTranslate')}
+                </Text>
+                <Text
+                  style={{
+                    fontFamily: fonts.body,
+                    fontSize: 12,
+                    color: palette.textMuted,
+                    marginTop: 2,
+                  }}
+                >
+                  {t('settings.autoTranslateHint')}
+                </Text>
+              </View>
+              <Switch
+                value={autoTranslate}
+                onValueChange={setAutoTranslate}
+                trackColor={{ false: palette.border, true: palette.charcoal }}
+                thumbColor={autoTranslate ? palette.surface : palette.surfaceElevated}
+              />
+            </View>
           </Section>
         </Reveal>
 
