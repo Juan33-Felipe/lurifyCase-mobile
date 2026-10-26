@@ -129,14 +129,14 @@ export const palettes: Record<ThemeMode, Palette> = {
 };
 
 export const fonts = {
-  hero: 'PlusJakartaSans_800ExtraBold',
-  heading: 'PlusJakartaSans_700Bold',
-  headingMedium: 'PlusJakartaSans_600SemiBold',
-  semibold: 'PlusJakartaSans_600SemiBold',
-  medium: 'PlusJakartaSans_500Medium',
-  body: 'PlusJakartaSans_400Regular',
-  label: 'PlusJakartaSans_500Medium',
-  strong: 'PlusJakartaSans_700Bold',
+  hero: 'Outfit_800ExtraBold',
+  heading: 'Outfit_700Bold',
+  headingMedium: 'Outfit_600SemiBold',
+  semibold: 'Outfit_600SemiBold',
+  medium: 'Outfit_500Medium',
+  body: 'Outfit_400Regular',
+  label: 'Outfit_500Medium',
+  strong: 'Outfit_700Bold',
 } as const;
 
 export const radius = {
