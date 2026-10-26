@@ -1,6 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { caseService } from '../services/caseService';
 import { AuditReport, Case, CanvasSnapshot, CreateCaseRequest } from '../types/api.types';
+import { useSettings } from './SettingsContext';
+import {
+  translateAudit,
+  translateCanvas,
+  translateCase,
+  translateCases,
+} from '../services/caseTranslationService';
 
 interface Remote<T> {
   data: T | null;
@@ -31,6 +38,7 @@ const CasesContext = createContext<CasesContextValue | null>(null);
  * the loading flag is derived, which avoids resetting state inside effects.
  */
 export function CasesProvider({ children }: { children: React.ReactNode }) {
+  const { language, autoTranslate } = useSettings();
   const [cases, setCases] = useState<Remote<Case[]>>({ data: null, loading: true, error: false });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [canvasState, setCanvasState] = useState<{ caseId: string; snapshot: CanvasSnapshot | null; error: boolean } | null>(null);
@@ -86,11 +94,14 @@ export function CasesProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const canvasCurrent = canvasState && canvasState.caseId === selectedId ? canvasState : null;
-  const canvas: Remote<CanvasSnapshot> = {
-    data: canvasCurrent?.snapshot ?? null,
-    loading: !!selectedId && !canvasCurrent,
-    error: canvasCurrent?.error ?? false,
-  };
+  const canvas: Remote<CanvasSnapshot> = useMemo(
+    () => ({
+      data: canvasCurrent?.snapshot ?? null,
+      loading: !!selectedId && !canvasCurrent,
+      error: canvasCurrent?.error ?? false,
+    }),
+    [canvasCurrent, selectedId]
+  );
 
   const createCase = useCallback(async (payload: CreateCaseRequest) => {
     const created = await caseService.createCase(payload);
@@ -117,24 +128,61 @@ export function CasesProvider({ children }: { children: React.ReactNode }) {
   }, [selectedId, canvas.data]);
 
   const auditCurrent = auditState && auditState.caseId === selectedId ? auditState : null;
-  const audit: Remote<AuditReport> = {
-    data: auditCurrent?.report ?? null,
-    loading: auditCurrent?.loading ?? false,
-    error: auditCurrent?.error ?? false,
-  };
+  const audit: Remote<AuditReport> = useMemo(
+    () => ({
+      data: auditCurrent?.report ?? null,
+      loading: auditCurrent?.loading ?? false,
+      error: auditCurrent?.error ?? false,
+    }),
+    [auditCurrent]
+  );
 
-  const selectedCase = useMemo(() => cases.data?.find((c) => c.id === selectedId) ?? null, [cases.data, selectedId]);
+  // Dynamically translated projections for UI presentation.
+  // The raw underlying data remains in pristine format ("sin tener que traducir el caso agregado").
+  const displayCases = useMemo<Remote<Case[]>>(() => {
+    if (!cases.data) return cases;
+    if (!autoTranslate) return cases;
+    return {
+      ...cases,
+      data: translateCases(cases.data, language),
+    };
+  }, [cases, language, autoTranslate]);
+
+  const displaySelectedCase = useMemo<Case | null>(() => {
+    const raw = cases.data?.find((c) => c.id === selectedId) ?? null;
+    if (!raw) return null;
+    if (!autoTranslate) return raw;
+    return translateCase(raw, language);
+  }, [cases.data, selectedId, language, autoTranslate]);
+
+  const displayCanvas = useMemo<Remote<CanvasSnapshot>>(() => {
+    if (!canvas.data) return canvas;
+    if (!autoTranslate) return canvas;
+    return {
+      ...canvas,
+      data: translateCanvas(canvas.data, language),
+    };
+  }, [canvas, language, autoTranslate]);
+
+  const displayAudit = useMemo<Remote<AuditReport>>(() => {
+    if (!audit.data) return audit;
+    if (!autoTranslate) return audit;
+    return {
+      ...audit,
+      data: translateAudit(audit.data, language),
+    };
+  }, [audit, language, autoTranslate]);
 
   const value: CasesContextValue = {
-    cases,
+    cases: displayCases,
     refreshCases,
     createCase,
-    selectedCase,
+    selectedCase: displaySelectedCase,
     selectCase: setSelectedId,
-    canvas,
+    canvas: displayCanvas,
     reloadCanvas,
     applyCanvas,
-    audit,
+    audit: displayAudit,
     runAudit,
   };
 

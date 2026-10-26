@@ -15,6 +15,10 @@ export interface Case {
   canvasVersion: CanvasVersion;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  // Dynamic translation metadata (FR-Language)
+  originalTitle?: string;
+  originalDescription?: string;
+  isTranslated?: boolean;
 }
 
 export interface PageInfo {
